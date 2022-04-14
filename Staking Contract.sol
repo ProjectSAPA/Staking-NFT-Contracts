@@ -441,11 +441,21 @@ contract StakingContract is Ownable {
 
     // Fund the pool, consequently setting the end block
     function performInitialFunding(IERC20 _stakeToken, IERC20 _rewardToken, uint256 _amount, uint256 _startBlock, uint256 _lockBlocks) public {
-        BasicPoolInfo storage basicPoolInfo = allPoolsBasicInfo[_stakeToken][_rewardToken][latestPoolNumber[_stakeToken][_rewardToken]];
-        DetailedPoolInfo storage detailedPoolInfo = allPoolsDetailedInfo[_stakeToken][_rewardToken][latestPoolNumber[_stakeToken][_rewardToken]];
+        uint256 poolIndex = latestPoolNumber[_stakeToken][_rewardToken];
+        BasicPoolInfo storage basicPoolInfo = allPoolsBasicInfo[_stakeToken][_rewardToken][poolIndex];
+        DetailedPoolInfo storage detailedPoolInfo = allPoolsDetailedInfo[_stakeToken][_rewardToken][poolIndex];
 
         require(basicPoolInfo.doesExists, "performInitialFunding: No such pool exists.");
         require(basicPoolInfo.startBlock == 0, "performInitialFunding: Initial funding already complete");
+
+        // If pool has passed max fund time, it will be ended before funding can be done.
+        // Otherwise, nothing will happen based on how the updatePoolStatus function is designed.
+        updatePoolStatus(_stakeToken, _rewardToken, poolIndex);
+        if(basicPoolInfo.hasEnded) {
+            return;
+        }
+
+        // This check ensures that caller does not set start block to be too high w.r.t. current block.
         require(_startBlock <= block.number.add(staleBlockDuration), "performInitialFunding: Start Block cannot be more than staleBlockDuration from current block.");
 
         IERC20 erc20 = basicPoolInfo.rewardToken;
@@ -496,7 +506,12 @@ contract StakingContract is Ownable {
         DetailedPoolInfo storage detailedPoolInfo = allPoolsDetailedInfo[_stakeToken][_rewardToken][poolIndex];
 
         require(basicPoolInfo.doesExists, "stakeWithPool: No such pool exists.");
-        require(!basicPoolInfo.hasEnded, "stakeWithPool: Pool has already ended.");
+        updatePoolStatus(_stakeToken, _rewardToken, poolIndex);
+
+        if (basicPoolInfo.hasEnded) {
+            massUpdatePoolStatus();
+            return;
+        }
         require(basicPoolInfo.startBlock > 0, "stakeWithPool: Pool has not been funded yet.");
         require(block.number >= basicPoolInfo.startBlock, "stakeWithPool: Pool reward distribution has not been started yet.");
         require(detailedPoolInfo.totalStakers < detailedPoolInfo.maxStakers, "Max stakers reached!");
@@ -511,7 +526,6 @@ contract StakingContract is Ownable {
         }
 
         massUpdatePoolStatus();
-        updatePoolStatus(_stakeToken, _rewardToken, poolIndex);
 
         if (token.amount > 0) {
             uint256 pendingAmount = getPendingRewardsOfNFT(_stakeToken, _rewardToken, poolIndex, tokenId);
