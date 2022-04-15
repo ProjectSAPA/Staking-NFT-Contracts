@@ -510,7 +510,7 @@ contract StakingContract is Ownable {
 
         if (basicPoolInfo.hasEnded) {
             massUpdatePoolStatus();
-            return;
+            return 0;
         }
         require(basicPoolInfo.startBlock > 0, "stakeWithPool: Pool has not been funded yet.");
         require(block.number >= basicPoolInfo.startBlock, "stakeWithPool: Pool reward distribution has not been started yet.");
