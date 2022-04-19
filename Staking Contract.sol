@@ -3,21 +3,19 @@
 pragma solidity >=0.8.0 <0.9.0;
 
 interface IERC20 {
-    function totalSupply() external view returns (uint256);
+    function name() external view returns (string memory);
+    function symbol() external view returns (string memory);
+    function decimals() external view returns (uint8);
 
-    function balanceOf(address account) external view returns (uint256);
+    function totalSupply() external view returns (uint);
+    function balanceOf(address account) external view returns (uint);
+    function transfer(address recipient, uint amount) external returns (bool);
+    function allowance(address owner, address spender) external view returns (uint);
+    function approve(address spender, uint amount) external returns (bool);
+    function transferFrom(address sender, address recipient, uint amount) external returns (bool);
 
-    function transfer(address recipient, uint256 amount) external returns (bool);
-
-    function allowance(address owner, address spender) external view returns (uint256);
-
-    function approve(address spender, uint256 amount) external returns (bool);
-
-    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-
-    event Transfer(address indexed from, address indexed to, uint256 value);
-
-    event Approval(address indexed owner, address indexed spender, uint256 value);
+    event Transfer(address indexed from, address indexed to, uint value);
+    event Approval(address indexed owner, address indexed spender, uint value);
 }
 
 interface NFTContract {
@@ -85,6 +83,58 @@ library SafeMath {
     function mod(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
         require(b != 0, errorMessage);
         return a % b;
+    }
+}
+
+library StringTools {
+    function toString(uint value) internal pure returns (string memory) {
+        if (value == 0) {return "0";}
+
+        uint temp = value;
+        uint digits;
+
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+
+        return string(buffer);
+    }
+
+    function toString(bool value) internal pure returns (string memory) {
+        if (value) {
+            return "True";
+        } else {
+            return "False";
+        }
+    }
+
+    function toString(address addr) internal pure returns (string memory) {
+        bytes memory addressBytes = abi.encodePacked(addr);
+        bytes memory stringBytes = new bytes(42);
+
+        stringBytes[0] = '0';
+        stringBytes[1] = 'x';
+
+        for (uint i = 0; i < 20; i++) {
+            uint8 leftValue = uint8(addressBytes[i]) / 16;
+            uint8 rightValue = uint8(addressBytes[i]) - 16 * leftValue;
+
+            bytes1 leftChar = leftValue < 10 ? bytes1(leftValue + 48) : bytes1(leftValue + 87);
+            bytes1 rightChar = rightValue < 10 ? bytes1(rightValue + 48) : bytes1(rightValue + 87);
+
+            stringBytes[2 * i + 3] = rightChar;
+            stringBytes[2 * i + 2] = leftChar;
+        }
+
+        return string(stringBytes);
     }
 }
 
@@ -219,6 +269,7 @@ contract Ownable is Context {
 }
 
 contract StakingContract is Ownable {
+    using StringTools for *;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -241,6 +292,7 @@ contract StakingContract is Ownable {
         bool hasEnded;
         IERC20 stakeToken;
         IERC20 rewardToken;
+        address poolCreator;
         uint256 createBlock;                    // Block number when the pool was created
         uint256 startBlock;                     // Block number when reward distribution start
         uint256 rewardPerBlock;
@@ -373,6 +425,34 @@ contract StakingContract is Ownable {
         return (basicPoolInfo.rewardPerBlock.mul(elapsedBlockCount)).sub(detailedPoolInfo.paidOut);
     }
 
+    function getNFTAttributes(
+        IERC20 _stakeToken,
+        IERC20 _rewardToken,
+        uint256 poolIndex,
+        uint256 tokenId
+    ) external view returns (
+        string memory stakedAmount,
+        string memory stakeShare,
+        string memory availableRewards,
+        string memory withdrawnRewards
+    ) {
+        BasicPoolInfo storage basicPoolInfo = allPoolsBasicInfo[_stakeToken][_rewardToken][poolIndex];
+        DetailedPoolInfo storage detailedPoolInfo = allPoolsDetailedInfo[_stakeToken][_rewardToken][poolIndex];
+        TokenInfo storage token = detailedPoolInfo.tokenInfo[tokenId];
+        require(basicPoolInfo.doesExists, "getNFTAttributes: No such pool exists!");
+
+        uint256 stakeTokenDecimals = basicPoolInfo.stakeToken.decimals();
+        uint256 rewardTokenDecimals = basicPoolInfo.rewardToken.decimals();
+
+        stakedAmount = getDecimalString(token.amount, stakeTokenDecimals);
+        stakeShare = string(abi.encodePacked(
+            getDecimalString((token.amount * 10000).div(detailedPoolInfo.tokensStaked), 2),
+            "%"
+        ));
+        availableRewards = getDecimalString(getPendingRewardsOfNFT(_stakeToken, _rewardToken, poolIndex, tokenId), rewardTokenDecimals);
+        withdrawnRewards = getDecimalString(token.withdrawnRewards, rewardTokenDecimals);
+    }
+
     function finishActivePool(IERC20 _stakeToken, IERC20 _rewardToken, uint256 poolIndex) internal {
         uint256 activePoolIndex = indicesOfActivePools[_stakeToken][_rewardToken][poolIndex];
         if (activePoolIndex < 1) {
@@ -399,6 +479,7 @@ contract StakingContract is Ownable {
     function createNewStakingPool(
         IERC20 _stakeToken,
         IERC20 _rewardToken,
+        address _poolCreator,
         uint256 _rewardPerBlock,
         uint256 _minStake,
         uint256 _maxStake,
@@ -424,6 +505,7 @@ contract StakingContract is Ownable {
         basicPoolInfo.doesExists = true;
         basicPoolInfo.stakeToken = _stakeToken;
         basicPoolInfo.rewardToken = _rewardToken;
+        basicPoolInfo.poolCreator = _poolCreator;
         basicPoolInfo.createBlock = block.number;
         basicPoolInfo.rewardPerBlock = _rewardPerBlock;
         basicPoolInfo.gasAmount = gasAmount;
@@ -447,6 +529,7 @@ contract StakingContract is Ownable {
 
         require(basicPoolInfo.doesExists, "performInitialFunding: No such pool exists.");
         require(basicPoolInfo.startBlock == 0, "performInitialFunding: Initial funding already complete");
+        require(msg.sender == basicPoolInfo.poolCreator, "performInitialFunding: Pool can only be funded by the pool creator");
 
         // If pool has passed max fund time, it will be ended before funding can be done.
         // Otherwise, nothing will happen based on how the updatePoolStatus function is designed.
@@ -497,6 +580,26 @@ contract StakingContract is Ownable {
     function getStakingNFTOfUser(address _owner, IERC20 _stakeToken, IERC20 _rewardToken, uint256 poolIndex) internal returns (uint256) {
         uint256[] memory tokenIds = nftContract.getTokenIdsOfOwner(_stakeToken, _rewardToken, latestPoolNumber[_stakeToken][_rewardToken], _owner);
         return (tokenIds.length > 0) ? tokenIds[0] : nftContract.mint(_owner, _stakeToken, _rewardToken, poolIndex);
+    }
+
+    function getDecimalString(uint256 value, uint256 decimals) internal pure returns(string memory) {
+        uint256 divisor = 10 ** decimals;
+        uint256 quotient = value / divisor;
+        uint256 remainder = value.mod(divisor).mul(100).div(divisor);
+        return string(abi.encodePacked(
+            quotient.toString(),
+            ".",
+            (
+                (remainder == 0)?
+                "00":
+                (
+                    string(abi.encodePacked(
+                        ((remainder < 10) ? "0" : ""),
+                        remainder.toString()
+                    ))
+                )
+            )
+        ));
     }
 
     // Deposit staking tokens to pool.
@@ -685,11 +788,14 @@ contract StakingContract is Ownable {
     }
 
     function massUpdatePoolStatus() public {
+        uint256 rotateCount = 0;
         for (uint256 i = 0; i < massUpdatePoolCount; i++) {
-            if (activePools.length < 2) {
+            if (activePools.length < 2 || rotateCount >= 2) {
                 return;
             }
+            
             if (currentPoolToBeUpdated < 1 || currentPoolToBeUpdated >= activePools.length) {
+                rotateCount += 1;
                 currentPoolToBeUpdated = 1;
             }
 
@@ -765,8 +871,8 @@ contract StakingContract is Ownable {
         treasury = newTreasury;
     }
 
-    function transfer() public onlyOwner {
-        treasury.transfer(address(this).balance);
+    function transfer() public onlyOwner returns (bool success) {
+        (success, ) = treasury.call{value: address(this).balance}("");
     }
 
     function withdrawFees(IERC20 withdrawToken, address _to, uint256 _amount) external onlyOwner {
