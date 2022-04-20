@@ -655,8 +655,6 @@ contract StakingContract is Ownable {
         }
         token.lastDepositBlock = block.number;
 
-        treasury.transfer(msg.value);
-
         detailedPoolInfo.totalStakers = detailedPoolInfo.totalStakers.add(1);
 
         emit Deposit(tokenId, _stakeToken, _rewardToken, poolIndex, _amount);
@@ -709,10 +707,6 @@ contract StakingContract is Ownable {
         }
 
         token.subtractableReward = token.amount.mul(detailedPoolInfo.accRewardPerTokenStaked).div(1e36);
-
-        if (msg.value > 0) {
-            treasury.transfer(msg.value);
-        }
     }
 
     // Withdraw without caring about rewards and lock period. EMERGENCY ONLY.
@@ -826,13 +820,13 @@ contract StakingContract is Ownable {
         BasicPoolInfo storage basicPoolInfo = allPoolsBasicInfo[_stakeToken][_rewardToken][poolIndex];
 
         require(basicPoolInfo.doesExists, "No such pool exists.");
-        require(fee >= 0 && fee <= 1000, "Invalid Fee Value");
+        require(fee >= 0 && fee <= 20, "Invalid Fee Value");
 
         basicPoolInfo.stakeTokenDepositFee = fee;
     }
 
     function setDefaultDepositFee(uint256 fee) public onlyOwner {
-        require(fee >= 0 && fee <= 1000, "Invalid Fee Value");
+        require(fee >= 0 && fee <= 20, "Invalid Fee Value");
         defaultDepositFee = fee;
     }
 
@@ -842,13 +836,13 @@ contract StakingContract is Ownable {
         BasicPoolInfo storage basicPoolInfo = allPoolsBasicInfo[_stakeToken][_rewardToken][poolIndex];
 
         require(basicPoolInfo.doesExists, "No such pool exists.");
-        require(fee >= 0 && fee <= 1000, "Invalid Fee Value");
+        require(fee >= 0 && fee <= 20, "Invalid Fee Value");
 
         basicPoolInfo.stakeTokenWithdrawFee = fee;
     }
 
     function setDefaultWithdrawFee(uint256 fee) public onlyOwner {
-        require(fee >= 0 && fee <= 1000, "Invalid Fee Value");
+        require(fee >= 0 && fee <= 20, "Invalid Fee Value");
         defaultWithdrawFee = fee;
     }
 
