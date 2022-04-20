@@ -500,7 +500,6 @@ contract StakingContract is Ownable {
         DetailedPoolInfo storage detailedPoolInfo = allPoolsDetailedInfo[_stakeToken][_rewardToken][poolIndex];
 
         require(!basicPoolInfo.doesExists, "Pool already exists.");
-        massUpdatePoolStatus();
 
         basicPoolInfo.doesExists = true;
         basicPoolInfo.stakeToken = _stakeToken;
@@ -612,7 +611,6 @@ contract StakingContract is Ownable {
         updatePoolStatus(_stakeToken, _rewardToken, poolIndex);
 
         if (basicPoolInfo.hasEnded) {
-            massUpdatePoolStatus();
             return 0;
         }
         require(basicPoolInfo.startBlock > 0, "stakeWithPool: Pool has not been funded yet.");
@@ -627,8 +625,6 @@ contract StakingContract is Ownable {
         if (requireAccessToken) {
             require(accessToken.balanceOf(msg.sender) >= minAccessTokenRequired, "Insufficient access token held by staker");
         }
-
-        massUpdatePoolStatus();
 
         if (token.amount > 0) {
             uint256 pendingAmount = getPendingRewardsOfNFT(_stakeToken, _rewardToken, poolIndex, tokenId);
@@ -679,7 +675,6 @@ contract StakingContract is Ownable {
         require(token.amount >= _amount, "unstakeFromPool: Can't withdraw more than deposited amount.");
         require(token.initialDepositBlock.add(basicPoolInfo.lockPeriod) <= block.number, "unstakeFromPool: Lock period not fulfilled");
 
-        massUpdatePoolStatus();
         updatePoolStatus(_stakeToken, _rewardToken, poolIndex);
 
         uint256 pendingAmount = getPendingRewardsOfNFT(_stakeToken, _rewardToken, poolIndex, tokenId);
@@ -717,8 +712,6 @@ contract StakingContract is Ownable {
     }
 
     function emergencyWithdraw(IERC20 _stakeToken, IERC20 _rewardToken, uint256 poolIndex, uint256 tokenId) public {
-        massUpdatePoolStatus();
-
         BasicPoolInfo storage basicPoolInfo = allPoolsBasicInfo[_stakeToken][_rewardToken][poolIndex];
         DetailedPoolInfo storage detailedPoolInfo = allPoolsDetailedInfo[_stakeToken][_rewardToken][poolIndex];
 
